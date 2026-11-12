@@ -1,0 +1,37 @@
+# Build & Binary Artifacts
+dist/
+dist-node/
+ts-dist/
+*.exe
+*.build/
+*.dist/
+*.onefile-build/
+*.bun-build
+
+# Dependencies & Package Managers
+node_modules/
+node_modules
+
+# Python Caches & Artifacts
+__pycache__/
+*pycache*/
+*.pyc
+
+# Local Environment & Secrets
+.env
+.env.local
+.sst
+.worktrees
+.idea
+.vscode
+.turbo
+.typecheck-profiles
+tmp/
+logs/
+
+# Temporary reports
+REPORT.md
+TEST_RESULTS.md
+*.report.md
+RELEASE_REVIEW.md
+tsconfig.tsbuildinfo

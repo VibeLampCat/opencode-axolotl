@@ -1,0 +1,111 @@
+name: Build and Release Monolithic OpenCode EXE
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build-windows:
+    name: Build Monolithic Windows EXE
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install Python Dependencies
+        run: |
+          pip install -r argon_bug/requirements.txt nuitka zstandard ordered-set
+
+      - name: Cache Nuitka Build Cache
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\Nuitka
+          key: nuitka-cache-${{ runner.os }}-${{ hashFiles('argon_bug/**') }}
+          restore-keys: |
+            nuitka-cache-${{ runner.os }}-
+
+      - name: Compile Mascot with Nuitka (C/C++ Standalone)
+        run: |
+          mkdir dist
+          python -m nuitka `
+            --onefile `
+            --enable-plugin=pyside6 `
+            --windows-console-mode=disable `
+            --company-name="OpenCode Community" `
+            --product-name="ArgonBug Desktop Mascot" `
+            --file-version=2.2.7.0 `
+            --product-version=2.2.7.0 `
+            --file-description="OpenCode Desktop Companion Widget" `
+            --copyright="MIT License" `
+            --onefile-tempdir-spec="{CACHE_DIR}/OpenCode/argon_runtime/2.2.7" `
+            --output-dir=dist `
+            --output-filename=argon_bug.exe `
+            --msvc=latest `
+            argon_bug/main.py
+
+      - name: Smoke-Test Compiled Mascot
+        run: |
+          dist\argon_bug.exe --test-run
+
+      - name: Install Monorepo Dependencies
+        run: |
+          bun install
+
+      - name: Embed Mascot Binary into OpenCode
+        run: |
+          node scripts/embed_mascot.mjs dist/argon_bug.exe
+
+      - name: Compile Monolithic opencode.exe
+        run: |
+          bun build --compile --target=bun-windows-x64 ./packages/cli/src/index.ts --outfile=dist/opencode.exe
+
+      - name: Generate SHA-256 Checksums
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash dist/opencode.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  opencode.exe" | Out-File -Encoding ascii dist/opencode.exe.sha256
+          Get-Content dist/opencode.exe.sha256
+
+      - name: Generate GitHub Artifact Attestation
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: dist/opencode.exe
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencode-windows-x64
+          path: |
+            dist/opencode.exe
+            dist/opencode.exe.sha256
+            dist/argon_bug.exe
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/opencode.exe
+            dist/opencode.exe.sha256
+          generate_release_notes: true
+          draft: false
+          prerelease: false
