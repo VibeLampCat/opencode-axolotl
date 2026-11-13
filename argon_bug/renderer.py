@@ -21,7 +21,10 @@ from argon_bug.config import (
     COLOR_MUTED_GRAY,
     COLOR_TEXT,
     COLOR_GREEN,
-    STATE_PHRASES,
+    COLOR_HEART_RED,
+    detect_system_language,
+    get_phrases_for_lang,
+    PET_PHRASES,
 )
 
 # Minecraft Axolotl Pixel Palette
@@ -35,26 +38,30 @@ COLOR_AXO_M = QColor("#DF5780")  # M: Розовый горизонтальны�
 
 # Спецэффекты и аксессуары
 COLOR_GILL_LIT = QColor("#FF7597")      # Светло-малиновая подсветка кончиков D в режиме THINKING
-COLOR_GILL_DIM = QColor("#6E1430")      # Приглушённые жабры в режиме LIMIT
+COLOR_GILL_DIM = QColor("#6E1430")      # Приглушённые жабры в режиме LIMIT / ERROR
 COLOR_GOGGLES_CYAN = QColor("#00F5D4")  # Голубые защитные очки в режиме TESTING
 COLOR_GOGGLES_GLINT = QColor("#FFFFFF") # Белый блик на очках
 COLOR_PIXEL_SPARK = QColor("#FFD166")   # Жёлтые квадратные искры в режиме WORKING
 COLOR_PIXEL_MUG = QColor("#24283B")     # Корпус кружки в IDLE
 COLOR_PIXEL_STEAM = QColor(250, 210, 225, 190) # Пиксельный парок над кружкой
+COLOR_SWEAT_DROP = QColor("#38BDF8")    # Капля пота в режиме ERROR
+COLOR_WOOD_SIGN = QColor("#B45309")     # Ручка лупы
+COLOR_MAG_RIM = QColor("#F59E0B")       # Оправа лупы в SEARCHING
+COLOR_MAG_GLASS = QColor(56, 189, 248, 170) # Стекло лупы
 
-# 16x11 Minecraft Axolotl Matrix
+# 16x11 Minecraft Axolotl Matrix (Строго симметричная относительно центра cols 7-8)
 BASE_SPRITE = [
-    "...D........D...",  # Row 0: Верхние кончики жабр
-    "..DG.LLLLLL.GD..",  # Row 1: Верхние жабры и светлый лоб
-    ".DGGLLLLLLLLGGD.",  # Row 2: Верхние/средние жабры и лоб
-    "..GSPPPPPPPPSG..",  # Row 3: Основание верхних жабр и верх мордочки
-    "DGGSPEPPPPPESGGD",  # Row 4: Боковые жабры, глаза E (col 5 и col 10)
+    "...D........D...",  # Row 0: Кончики верхних жабр (col 3 и col 12)
+    "..DG.LLLLLL.GD..",  # Row 1: Верхние жабры и светлый лоб (cols 5..10)
+    ".DGGLLLLLLLLGGD.",  # Row 2: Верхние/средние жабры и лоб (cols 4..11)
+    "..GSPPPPPPPPSG..",  # Row 3: Основание верхних жабр и верх мордочки (cols 4..11)
+    "DGGSPEPPPPEPSGGD",  # Row 4: Боковые жабры, СИММЕТРИЧНЫЕ глаза E (col 5 и col 10!)
     ".GGSPPPMMPPPSGG.",  # Row 5: Боковые жабры, ротик MM по центру (col 7, 8)
-    "...SPPPPPPPPS...",  # Row 6: Щёчки и низ мордочки
-    "....SSSSSSSS....",  # Row 7: Нижний контур головы (подбородок)
-    "...DG......GD...",  # Row 8: Верхняя часть лапок-крестиков
-    "..DGGD....DGGD..",  # Row 9: Средняя широкая часть лапок-крестиков
-    "...DG......GD...",  # Row 10: Нижняя часть лапок-крестиков
+    "...SPPPPPPPPS...",  # Row 6: Щёчки и низ мордочки (cols 4..11)
+    "....SSSSSSSS....",  # Row 7: Нижний контур подбородка (cols 4..11)
+    "...DG......GD...",  # Row 8: Симметричные лапки (cols 3,4 и 11,12)
+    "..DGGD....DGGD..",  # Row 9: Средняя широкая часть лапок (cols 2..5 и 10..13)
+    "...DG......GD...",  # Row 10: Нижняя часть лапок (cols 3,4 и 11,12)
 ]
 
 
@@ -66,7 +73,7 @@ class SparkParticle:
         self.vy = random.uniform(-2.5, 1.5)
         self.life = 1.0
         self.decay = random.uniform(0.05, 0.09)
-        self.size = random.choice([4.0, 6.0])  # Strict square pixel sizes
+        self.size = random.choice([4.0, 6.0])
 
     def update(self) -> bool:
         self.x += self.vx
@@ -92,36 +99,98 @@ class SleepZParticle:
         return self.life > 0
 
 
+class CelebrationParticle:
+    def __init__(self, x: float, y: float):
+        self.x = x
+        self.y = y
+        self.vx = random.uniform(-2.5, 2.5)
+        self.vy = random.uniform(-4.0, -1.5)
+        self.gravity = 0.12
+        self.life = 1.0
+        self.decay = random.uniform(0.02, 0.04)
+        self.size = random.choice([3.0, 5.0])
+        self.color = random.choice([
+            QColor(COLOR_SPARK_YELLOW),
+            QColor(COLOR_NEON_CYAN),
+            QColor(COLOR_GREEN),
+            QColor(COLOR_AXO_G),
+            QColor("#F43F5E"),
+        ])
+
+    def update(self) -> bool:
+        self.x += self.vx
+        self.y += self.vy
+        self.vy += self.gravity
+        self.life -= self.decay
+        return self.life > 0
+
+
+class HeartParticle:
+    def __init__(self, x: float, y: float):
+        self.x = x
+        self.y = y
+        self.life = 1.0
+        self.decay = 0.028
+
+    def update(self) -> bool:
+        self.y -= 1.2
+        self.life -= self.decay
+        return self.life > 0
+
+
 class ArgonBugRenderer:
     def __init__(self):
         self.state = BugState.IDLE
+        self.language = detect_system_language()
         self.detail_text = ""
         self.tick = 0
         self.phrase_index = 0
         self.last_phrase_switch = time.time()
         self.sparks: List[SparkParticle] = []
         self.sleep_zs: List[SleepZParticle] = []
-        self.pixel_size = 7  # 7x7 screen pixels per logical pixel
+        self.confetti: List[CelebrationParticle] = []
+        self.hearts: List[HeartParticle] = []
+        self.pet_until = 0.0
+        self.pixel_size = 7
+
+    def set_language(self, lang: str):
+        if lang in ("ru", "en"):
+            self.language = lang
+            self.phrase_index = 0
+
+    def get_current_phrases(self) -> List[str]:
+        phrases_map = get_phrases_for_lang(self.language)
+        return phrases_map.get(self.state, [""])
+
+    def trigger_petting(self):
+        self.pet_until = time.time() + 2.5
+        phrases = PET_PHRASES.get(self.language, PET_PHRASES["en"])
+        self.detail_text = random.choice(phrases)
+        self.hearts.append(HeartParticle(115.0, 24.0))
 
     def set_state(self, state: BugState, detail: str = ""):
         if self.state != state:
             self.state = state
-            self.phrase_index = random.randint(0, len(STATE_PHRASES[state]) - 1)
+            phrases = self.get_current_phrases()
+            self.phrase_index = random.randint(0, max(0, len(phrases) - 1))
             self.last_phrase_switch = time.time()
         self.detail_text = detail
 
     def update_animation(self):
         self.tick += 1
 
-        # Cycle phrases periodically
+        if self.pet_until > 0 and time.time() > self.pet_until:
+            self.pet_until = 0.0
+            if self.detail_text in PET_PHRASES.get("ru", []) + PET_PHRASES.get("en", []):
+                self.detail_text = ""
+
         now = time.time()
         if now - self.last_phrase_switch > 6.0:
             self.last_phrase_switch = now
-            phrases = STATE_PHRASES.get(self.state, [""])
+            phrases = self.get_current_phrases()
             if phrases:
                 self.phrase_index = (self.phrase_index + 1) % len(phrases)
 
-        # Sparks generator for WORKING state
         if self.state == BugState.WORKING:
             if len(self.sparks) < 25 and random.random() < 0.7:
                 side = -1 if random.random() < 0.5 else 1
@@ -130,52 +199,68 @@ class ArgonBugRenderer:
                 self.sparks.append(SparkParticle(emit_x, emit_y, side))
         self.sparks = [s for s in self.sparks if s.update()]
 
-        # Sleep particles for LIMIT state
         if self.state == BugState.LIMIT:
             if len(self.sleep_zs) < 4 and self.tick % 32 == 0:
                 self.sleep_zs.append(SleepZParticle(120.0, 32.0))
         self.sleep_zs = [z for z in self.sleep_zs if z.update()]
 
+        if self.state == BugState.SUCCESS:
+            if len(self.confetti) < 30 and random.random() < 0.8:
+                emit_x = 115.0 + random.uniform(-40.0, 40.0)
+                emit_y = 48.0
+                self.confetti.append(CelebrationParticle(emit_x, emit_y))
+        self.confetti = [c for c in self.confetti if c.update()]
+
+        self.hearts = [h for h in self.hearts if h.update()]
+
     def render(self, painter: QPainter, width: int, height: int):
-        # Strict Pixel-Art: disable antialiasing for pixel rendering
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
 
         cx = width / 2.0
         base_x = int(cx - (16 * self.pixel_size) / 2)
         base_y = 26
 
-        frame_step = self.tick // 10  # ~330 ms cadence
+        frame_step = self.tick // 10
+
+        # Vertical bounce for SUCCESS jump
+        jump_y = int(-abs(math.sin(self.tick * 0.25)) * 8) if self.state == BugState.SUCCESS else 0
 
         # 1. Render 16x11 Minecraft Axolotl Sprite
-        self._render_axolotl_sprite(painter, base_x, base_y, frame_step)
+        self._render_axolotl_sprite(painter, base_x, base_y + jump_y, frame_step)
 
         # 2. Render State Props & Overlays
         if self.state == BugState.IDLE:
-            self._render_pixel_tea_mug(painter, base_x, base_y, frame_step)
+            self._render_pixel_tea_mug(painter, base_x, base_y + jump_y, frame_step)
         elif self.state == BugState.THINKING:
-            self._render_thinking_halo(painter, cx, base_y)
+            self._render_thinking_halo(painter, cx, base_y + jump_y)
+        elif self.state == BugState.SEARCHING:
+            self._render_magnifying_glass(painter, base_x, base_y + jump_y)
         elif self.state == BugState.TESTING:
-            self._render_pixel_hud(painter, cx, base_y)
+            self._render_pixel_hud(painter, cx, base_y + jump_y)
+        elif self.state == BugState.ASKING:
+            self._render_question_bubble(painter, cx, base_y + jump_y)
+        elif self.state == BugState.ERROR:
+            self._render_sweat_drop(painter, base_x, base_y + jump_y)
 
-        # 3. Render Strict Square Particles
+        # 3. Render Particles
         self._render_particles(painter)
 
-        # 4. Render Translucent Status Banner at bottom (strictly preserved)
+        # 4. Render Translucent Status Banner at bottom
         self._render_status_card(painter, width, height)
 
     def _render_axolotl_sprite(self, painter: QPainter, bx: int, by: int, frame_step: int):
         px = self.pixel_size
         painter.setPen(Qt.PenStyle.NoPen)
 
-        # State animations parameters
-        is_blinking = (self.tick % 90) < 6
-        is_idle_breathe = (frame_step % 2 == 1) if self.state == BugState.IDLE else False
+        is_petted = (self.pet_until > time.time())
+        is_blinking = ((self.tick % 90) < 6) or is_petted
+        is_idle_breathe = (frame_step % 2 == 1) if self.state in (BugState.IDLE, BugState.ASKING) else False
         active_group = (self.tick // 6) % 4 if self.state == BugState.THINKING else -1
         fast_step = (self.tick // 3) % 2 if self.state == BugState.WORKING else -1
         working_head_vibe = ((self.tick % 2) * 2) if self.state == BugState.WORKING else 0
 
-        # Global offset for LIMIT (whole sprite drops down)
-        global_offset_y = (2 * px) if self.state == BugState.LIMIT else 0
+        # Drop down for LIMIT / ERROR
+        global_offset_y = (2 * px) if self.state in (BugState.LIMIT, BugState.ERROR) else 0
 
         for r in range(11):
             row_str = BASE_SPRITE[r]
@@ -188,47 +273,29 @@ class ArgonBugRenderer:
                 draw_c = c
                 color = COLOR_AXO_P
 
-                # -----------------------------------------------------------
-                # A. HEAD vs PAWS Y-OFFSETS
-                # -----------------------------------------------------------
                 is_head = (r <= 7)
                 is_paws = (r >= 8)
 
                 if is_head:
                     head_offset_y = global_offset_y + working_head_vibe
                     if is_idle_breathe:
-                        # Head breathes down by 1 pixel to paws
                         head_offset_y += px
-                    elif self.state == BugState.LIMIT:
-                        # Head additionally presses +1 pixel closer to paws
+                    elif self.state in (BugState.LIMIT, BugState.ERROR):
                         head_offset_y += px
                 else:
                     head_offset_y = global_offset_y
 
-                # -----------------------------------------------------------
-                # B. WORKING FAST STEP WITH CROSS-PAWS (rows 8..10)
-                # -----------------------------------------------------------
+                # WORKING paw step
                 if is_paws and self.state == BugState.WORKING:
                     if fast_step == 0 and (2 <= c <= 5):
                         draw_r = r - 1
                     elif fast_step == 1 and (10 <= c <= 13):
                         draw_r = r - 1
 
-                # -----------------------------------------------------------
-                # C. GILL KINEMATICS & COLORING
-                # -----------------------------------------------------------
+                # GILL Kinematics & Colors (Строго цельный контур без отрывающихся пикселей!)
                 if ch in ("D", "G"):
-                    # 1. LIMIT: upper gills drop by 1 px, all gills dim
-                    if self.state == BugState.LIMIT:
-                        if r in (0, 1, 2):
-                            draw_r = r + 1
+                    if self.state in (BugState.LIMIT, BugState.ERROR):
                         color = COLOR_GILL_DIM
-                    # 2. IDLE: upper gill tips sway up on inhale
-                    elif self.state == BugState.IDLE and is_idle_breathe:
-                        if (r == 0 and c in (3, 12)) or (r == 2 and c in (1, 14)):
-                            draw_r = r - 1
-                        color = COLOR_AXO_D if ch == "D" else COLOR_AXO_G
-                    # 3. THINKING: circular highlight on 4 groups of D tips
                     elif self.state == BugState.THINKING and ch == "D" and r <= 5:
                         is_lit = False
                         if active_group == 0 and ((r == 4 and c == 0) or (r == 2 and c == 1)):
@@ -239,7 +306,6 @@ class ArgonBugRenderer:
                             is_lit = True
                         elif active_group == 3 and ((r == 2 and c == 14) or (r == 4 and c == 15)):
                             is_lit = True
-
                         color = COLOR_GILL_LIT if is_lit else COLOR_AXO_D
                     else:
                         color = COLOR_AXO_D if ch == "D" else COLOR_AXO_G
@@ -248,46 +314,39 @@ class ArgonBugRenderer:
                     painter.drawRect(QRectF(bx + draw_c * px, by + draw_r * px + head_offset_y, px, px))
                     continue
 
-                # -----------------------------------------------------------
-                # D. TESTING GOGGLES (row 4, columns 4..11)
-                # -----------------------------------------------------------
+                # TESTING goggles (row 4, cols 4..11)
                 if self.state == BugState.TESTING and r == 4 and (4 <= c <= 11):
                     if c in (7, 8):
-                        # Goggles bridge
                         color = COLOR_AXO_E
                         painter.setBrush(QBrush(color))
                         painter.drawRect(QRectF(bx + draw_c * px, by + draw_r * px + head_offset_y, px, px))
                     else:
-                        # Cyan lenses
                         color = COLOR_GOGGLES_CYAN
                         painter.setBrush(QBrush(color))
                         painter.drawRect(QRectF(bx + draw_c * px, by + draw_r * px + head_offset_y, px, px))
-                        # White glint at top-left of each lens
                         if c in (4, 9):
                             painter.setBrush(QBrush(COLOR_GOGGLES_GLINT))
                             painter.drawRect(QRectF(bx + draw_c * px + 1, by + draw_r * px + head_offset_y + 1, 3, 3))
                     continue
 
-                # -----------------------------------------------------------
-                # E. EYES & BLINKING (row 4, columns 5 and 10)
-                # -----------------------------------------------------------
+                # EYES (col 5 and col 10 — строго симметричны во всех анимациях!)
                 if ch == "E" and r == 4:
-                    if self.state == BugState.LIMIT or is_blinking:
-                        # Base skin color
+                    if self.state in (BugState.LIMIT, BugState.ERROR) or is_blinking:
                         painter.setBrush(QBrush(COLOR_AXO_P))
                         painter.drawRect(QRectF(bx + draw_c * px, by + draw_r * px + head_offset_y, px, px))
-                        # Closed horizontal line slit 2px high
                         painter.setBrush(QBrush(COLOR_AXO_E))
-                        painter.drawRect(QRectF(bx + draw_c * px, by + draw_r * px + head_offset_y + 3, px, 2))
+                        if is_petted:
+                            # Happy curved squint ^
+                            painter.drawRect(QRectF(bx + draw_c * px, by + draw_r * px + head_offset_y + 2, px, 2))
+                        else:
+                            # Peaceful closed eye
+                            painter.drawRect(QRectF(bx + draw_c * px, by + draw_r * px + head_offset_y + 3, px, 2))
                     else:
-                        # Solid dark square eye
                         painter.setBrush(QBrush(COLOR_AXO_E))
                         painter.drawRect(QRectF(bx + draw_c * px, by + draw_r * px + head_offset_y, px, px))
                     continue
 
-                # -----------------------------------------------------------
-                # F. SKIN, FOREHEAD, CHEEKS, SMILE
-                # -----------------------------------------------------------
+                # SKIN, CHEEKS, SMILE
                 if ch == "L":
                     color = COLOR_AXO_L
                 elif ch == "P":
@@ -307,15 +366,11 @@ class ArgonBugRenderer:
         mug_x = bx + 14 * px
         mug_y = by + 7 * px
 
-        # Mug body: 2x3 logical pixels in #24283B with #F497B6 rim
         painter.setBrush(QBrush(COLOR_PIXEL_MUG))
         painter.setPen(QPen(COLOR_AXO_P, 1.2))
         painter.drawRect(QRectF(mug_x, mug_y, 2 * px, 3 * px))
-
-        # Handle: 1x2 logical pixels on right
         painter.drawRect(QRectF(mug_x + 2 * px, mug_y + 0.5 * px, 0.8 * px, 1.8 * px))
 
-        # Rising steam: 2 square pixels 4x4 px
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(COLOR_PIXEL_STEAM))
         steam_step = (self.tick // 4) % 10
@@ -326,7 +381,6 @@ class ArgonBugRenderer:
             painter.drawRect(QRectF(sx, sy, 4.0, 4.0))
 
     def _render_thinking_halo(self, painter: QPainter, cx: float, by: int):
-        # 3 strict square dots (5x5 px) rotating above head
         px = 5.0
         phase = self.tick * 0.12
         painter.setPen(Qt.PenStyle.NoPen)
@@ -339,8 +393,55 @@ class ArgonBugRenderer:
             painter.setBrush(QBrush(color))
             painter.drawRect(QRectF(dot_x, dot_y, px, px))
 
+    def _render_magnifying_glass(self, painter: QPainter, bx: int, by: int):
+        # Лупа вынесена строго сбоку за пределы мордочки (col 14..16), чтобы глаза были свободны и симметричны!
+        px = self.pixel_size
+        bob_y = int(math.sin(self.tick * 0.2) * 2)
+        glass_x = bx + 14 * px + 2
+        glass_y = by + 5 * px + bob_y
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        # Gold Rim
+        painter.setBrush(QBrush(COLOR_MAG_RIM))
+        painter.drawRect(QRectF(glass_x, glass_y, 2.8 * px, 2.8 * px))
+        # Cyan Glass inside
+        painter.setBrush(QBrush(COLOR_MAG_GLASS))
+        painter.drawRect(QRectF(glass_x + 3, glass_y + 3, 2.8 * px - 6, 2.8 * px - 6))
+        # Glass glint
+        painter.setBrush(QBrush(QColor("#FFFFFF")))
+        painter.drawRect(QRectF(glass_x + 4, glass_y + 4, 3, 3))
+        # Wooden Handle
+        painter.setBrush(QBrush(COLOR_WOOD_SIGN))
+        painter.drawRect(QRectF(glass_x + 2.2 * px, glass_y + 2.4 * px, 1.0 * px, 2.2 * px))
+
+    def _render_question_bubble(self, painter: QPainter, cx: float, by: int):
+        # Табличка [?] висит аккуратно сверху над головой, лапки не трогает
+        b_w = 28.0
+        b_h = 18.0
+        bob_y = math.sin(self.tick * 0.15) * 3.0
+        b_x = cx - b_w / 2.0
+        b_y = by - 16.0 + bob_y
+
+        painter.setBrush(QBrush(QColor(COLOR_BG_CARD)))
+        painter.setPen(QPen(QColor(COLOR_SPARK_YELLOW), 1.2))
+        painter.drawRoundedRect(QRectF(b_x, b_y, b_w, b_h), 4, 4)
+
+        painter.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        painter.setPen(QColor(COLOR_SPARK_YELLOW))
+        painter.drawText(QRectF(b_x, b_y - 1, b_w, b_h), Qt.AlignmentFlag.AlignCenter, "?")
+
+    def _render_sweat_drop(self, painter: QPainter, bx: int, by: int):
+        px = self.pixel_size
+        drop_x = bx + 12 * px
+        drop_y = by + 2 * px + ((self.tick // 3) % 4) * 2
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(COLOR_SWEAT_DROP))
+        painter.drawRect(QRectF(drop_x, drop_y, 4, 6))
+        painter.setBrush(QBrush(QColor("#FFFFFF")))
+        painter.drawRect(QRectF(drop_x + 1, drop_y + 1, 2, 2))
+
     def _render_pixel_hud(self, painter: QPainter, cx: float, by: int):
-        # Mini pixel HUD terminal placed near paws
         hud_w = 44.0
         hud_h = 18.0
         hud_x = cx - hud_w / 2.0
@@ -357,7 +458,6 @@ class ArgonBugRenderer:
             line_w = 6.0 + ((self.tick * 2 + i * 11) % 24)
             painter.drawRect(QRectF(hud_x + 3.0, line_y, line_w, 2.0))
 
-        # Blinking cursor
         if (self.tick // 8) % 2 == 0:
             painter.setBrush(QBrush(QColor(COLOR_SPARK_YELLOW)))
             painter.drawRect(QRectF(hud_x + 34.0, hud_y + 11.0, 3.0, 3.0))
@@ -365,20 +465,48 @@ class ArgonBugRenderer:
     def _render_particles(self, painter: QPainter):
         painter.setPen(Qt.PenStyle.NoPen)
 
-        # 1. Square yellow sparks for WORKING
         for s in self.sparks:
             color = QColor(COLOR_PIXEL_SPARK)
             color.setAlpha(int(255 * s.life))
             painter.setBrush(QBrush(color))
             painter.drawRect(QRectF(s.x, s.y, s.size, s.size))
 
-        # 2. Pixel sleep z / Z for LIMIT
         if self.sleep_zs:
             for z in self.sleep_zs:
                 alpha = int(220 * z.life)
                 painter.setPen(QColor(224, 30, 90, alpha))
                 painter.setFont(QFont("Consolas", 8 if z.scale == 1 else 11, QFont.Weight.Bold))
                 painter.drawText(QPointF(z.x, z.y), "z" if z.scale == 1 else "Z")
+
+        for c in self.confetti:
+            col = QColor(c.color)
+            col.setAlpha(int(255 * c.life))
+            painter.setBrush(QBrush(col))
+            painter.drawRect(QRectF(c.x, c.y, c.size, c.size))
+
+        for h in self.hearts:
+            self._render_single_heart(painter, h.x, h.y, h.life)
+
+    def _render_single_heart(self, painter: QPainter, hx: float, hy: float, life: float):
+        px = 2.5
+        col = QColor(COLOR_HEART_RED)
+        col.setAlpha(int(255 * life))
+        painter.setBrush(QBrush(col))
+        painter.setPen(Qt.PenStyle.NoPen)
+
+        pattern = [
+            ".XX.XX.",
+            "XXXXXXX",
+            ".XXXXX.",
+            "..XXX..",
+            "...X...",
+        ]
+        start_x = hx - 3.5 * px
+        start_y = hy
+        for r, row in enumerate(pattern):
+            for c, char in enumerate(row):
+                if char == "X":
+                    painter.drawRect(QRectF(start_x + c * px, start_y + r * px, px, px))
 
     def _render_status_card(self, painter: QPainter, width: int, height: int):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -387,20 +515,25 @@ class ArgonBugRenderer:
         card_x = 8
         card_y = height - card_h - 8
 
-        # Background rounded rect (strictly preserved)
         painter.setBrush(QBrush(QColor(22, 22, 30, 230)))
-        border_c = QColor(COLOR_NEON_VIOLET if self.state != BugState.LIMIT else COLOR_MUTED_GRAY)
+
+        border_c = QColor(COLOR_NEON_VIOLET)
+        if self.state in (BugState.LIMIT, BugState.ERROR):
+            border_c = QColor(COLOR_MUTED_GRAY)
+        elif self.state == BugState.SUCCESS:
+            border_c = QColor(COLOR_GREEN)
+        elif self.state == BugState.ASKING:
+            border_c = QColor(COLOR_SPARK_YELLOW)
+
         painter.setPen(QPen(border_c, 1.4))
         painter.drawRoundedRect(QRectF(card_x, card_y, card_w, card_h), 8, 8)
 
-        # Determine display text
         if self.detail_text:
             text = self.detail_text
         else:
-            phrases = STATE_PHRASES.get(self.state, [""])
+            phrases = self.get_current_phrases()
             text = phrases[self.phrase_index % len(phrases)]
 
-        # Text rendering
         painter.setPen(QColor(COLOR_TEXT))
         font = QFont("Segoe UI", 8, QFont.Weight.Medium)
         painter.setFont(font)

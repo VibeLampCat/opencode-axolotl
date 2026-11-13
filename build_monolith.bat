@@ -135,7 +135,11 @@ if %ERRORLEVEL% neq 0 (
 )
 
 if not exist "dist\opencode.exe" (
-    if exist "packages\cli\dist\opencode.exe" (
+    if exist "packages\cli\dist\cli-windows-x64\bin\opencode.exe" (
+        copy /y "packages\cli\dist\cli-windows-x64\bin\opencode.exe" "dist\opencode.exe" >nul
+    ) else if exist "opencode\packages\cli\dist\cli-windows-x64\bin\opencode.exe" (
+        copy /y "opencode\packages\cli\dist\cli-windows-x64\bin\opencode.exe" "dist\opencode.exe" >nul
+    ) else if exist "packages\cli\dist\opencode.exe" (
         copy /y "packages\cli\dist\opencode.exe" "dist\opencode.exe" >nul
     )
 )

@@ -118,9 +118,17 @@ function getPythonExecutable(): string {
   return process.platform === "win32" ? "python" : "python3"
 }
 
+function getMascotArgs(): string[] {
+  const args = ["--parent-pid", String(process.pid)]
+  if (process.env.OPENCODE_ARGON_LANG) {
+    args.push("--lang", process.env.OPENCODE_ARGON_LANG)
+  }
+  return args
+}
+
 function launchBinary(exePath: string): boolean {
   try {
-    const child = spawn(exePath, ["--parent-pid", String(process.pid)], {
+    const child = spawn(exePath, getMascotArgs(), {
       detached: false,
       stdio: "ignore",
       windowsHide: true,
@@ -160,7 +168,7 @@ export function startArgonBug(): void {
     }
 
     const pythonBin = getPythonExecutable()
-    const child = spawn(pythonBin, [scriptPath, "--parent-pid", String(process.pid)], {
+    const child = spawn(pythonBin, [scriptPath, ...getMascotArgs()], {
       detached: true,
       stdio: "ignore",
       windowsHide: true,

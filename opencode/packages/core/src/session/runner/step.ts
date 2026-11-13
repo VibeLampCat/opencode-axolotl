@@ -129,20 +129,24 @@ export const make = Effect.gen(function* () {
             firstOutputAt = yield* Clock.currentTimeMillis
 
           if (event.type === "reasoning-delta" || event.type === "reasoning-start") {
-            emitArgonState("THINKING", "Argon думает, тихо...")
+            emitArgonState("THINKING")
           } else if (event.type === "text-delta") {
-            emitArgonState("WORKING", "Flash пилит код!")
+            emitArgonState("WORKING")
           }
 
           if (event.type !== "tool-call" || event.providerExecuted) return
 
           const toolName = (event.name ?? "").toLowerCase()
           if (toolName.includes("bash") || toolName.includes("shell") || toolName.includes("exec")) {
-            emitArgonState("TESTING", "Запускаю .exe, держим кулачки")
+            emitArgonState("TESTING")
           } else if (toolName.includes("write") || toolName.includes("edit") || toolName.includes("patch")) {
-            emitArgonState("WORKING", `Flash пилит код: ${event.name}`)
+            emitArgonState("WORKING")
+          } else if (toolName.includes("read") || toolName.includes("grep") || toolName.includes("glob") || toolName.includes("search") || toolName.includes("fetch")) {
+            emitArgonState("SEARCHING")
+          } else if (toolName.includes("question") || toolName.includes("ask") || toolName.includes("permission")) {
+            emitArgonState("ASKING")
           } else {
-            emitArgonState("WORKING", `Выполняю ${event.name}`)
+            emitArgonState("WORKING")
           }
 
           toolRuns.push({
@@ -151,9 +155,10 @@ export const make = Effect.gen(function* () {
               restore(executeTool(event)).pipe(
                 Effect.flatMap(toolOutput.truncate),
                 Effect.flatMap((outcome) => publisher.toolExecution(event.id, event.name, outcome)),
-                Effect.catchTag("Tool.Error", (error) =>
-                  publisher.failTool(event.id, toSessionError(error), error.metadata).pipe(Effect.asVoid),
-                ),
+                Effect.catchTag("Tool.Error", (error) => {
+                  emitArgonState("ERROR")
+                  return publisher.failTool(event.id, toSessionError(error), error.metadata).pipe(Effect.asVoid)
+                }),
               ),
             ).pipe(Effect.forkScoped),
           })

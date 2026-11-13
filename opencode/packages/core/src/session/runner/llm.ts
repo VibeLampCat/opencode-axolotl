@@ -323,7 +323,8 @@ const layer = Layer.effect(
           Completed: Effect.fnUntraced(function* (outcome) {
             // The Session is about to go idle, which leaves the background summary time to finish.
             if (!outcome.needsContinuation) {
-              emitArgonState("IDLE", "Жду ТЗ от босса")
+              emitArgonState("SUCCESS")
+              setTimeout(() => emitArgonState("IDLE"), 3500)
               yield* compaction.precompute(
                 store.context(sessionID).pipe(Effect.map((messages) => ({ ...loaded, messages }))),
               )

@@ -1,4 +1,5 @@
 import sys
+import time
 from PySide6.QtCore import Qt, QTimer, QPoint, QRectF
 from PySide6.QtGui import (
     QPainter,
@@ -24,6 +25,7 @@ from argon_bug.config import (
     COLOR_NEON_CYAN,
     COLOR_NEON_PURPLE,
     COLOR_BG_DARK,
+    save_language_preference,
 )
 from argon_bug.renderer import ArgonBugRenderer
 from argon_bug.udp_listener import ArgonUDPListener
@@ -50,11 +52,16 @@ def create_tray_icon() -> QIcon:
 
 
 class ArgonBugWidget(QWidget):
-    def __init__(self, listener: ArgonUDPListener):
+    def __init__(self, listener: ArgonUDPListener, initial_lang: str = None):
         super().__init__()
         self.listener = listener
         self.renderer = ArgonBugRenderer()
+        if initial_lang:
+            self.renderer.set_language(initial_lang)
+
         self.drag_position = QPoint()
+        self.press_pos = QPoint()
+        self.press_time = 0.0
         self.is_dragging = False
         self.auto_mode = True
 
@@ -77,7 +84,6 @@ class ArgonBugWidget(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setWindowTitle("ArgonBug - OpenCode v2.2.7")
 
-        # Position widget at bottom-right corner by default
         screen = QApplication.primaryScreen()
         if screen:
             geom = screen.availableGeometry()
@@ -121,29 +127,59 @@ class ArgonBugWidget(QWidget):
         """)
 
         # 1. Connection status info
-        status_action = QAction(f"🟢 Связь с OpenCode v2.2.7 (UDP:{UDP_PORT})", self)
+        is_ru = (self.renderer.language == "ru")
+        status_label = f"🟢 Связь с OpenCode (UDP:{UDP_PORT})" if is_ru else f"🟢 OpenCode Core Synced (UDP:{UDP_PORT})"
+        status_action = QAction(status_label, self)
         status_action.setEnabled(False)
         menu.addAction(status_action)
         menu.addSeparator()
 
-        # 2. Auto management toggle
-        self.auto_action = QAction("🔄 Авто-управление от ядра OpenCode", self)
+        # 2. Language Selector
+        lang_menu_label = "🌐 Язык / Language"
+        lang_menu = menu.addMenu(lang_menu_label)
+        lang_group = QActionGroup(self)
+        lang_group.setExclusive(True)
+
+        ru_action = QAction("🇷🇺 Русский", self)
+        ru_action.setCheckable(True)
+        ru_action.setChecked(self.renderer.language == "ru")
+        ru_action.triggered.connect(lambda: self._set_language("ru"))
+        lang_group.addAction(ru_action)
+        lang_menu.addAction(ru_action)
+
+        en_action = QAction("🇬🇧 English", self)
+        en_action.setCheckable(True)
+        en_action.setChecked(self.renderer.language == "en")
+        en_action.triggered.connect(lambda: self._set_language("en"))
+        lang_group.addAction(en_action)
+        lang_menu.addAction(en_action)
+
+        menu.addSeparator()
+
+        # 3. Auto management toggle
+        auto_label = "🔄 Авто-управление от ядра OpenCode" if is_ru else "🔄 Auto Sync with OpenCode Core"
+        self.auto_action = QAction(auto_label, self)
         self.auto_action.setCheckable(True)
         self.auto_action.setChecked(self.auto_mode)
         self.auto_action.triggered.connect(self._toggle_auto_mode)
         menu.addAction(self.auto_action)
         menu.addSeparator()
 
-        # 3. Manual state modes
-        manual_menu = menu.addMenu("🎯 Выбрать состояние вручную")
+        # 4. Manual state modes (9 states)
+        manual_menu_label = "🎯 Выбрать состояние вручную" if is_ru else "🎯 Preview Animation State"
+        manual_menu = menu.addMenu(manual_menu_label)
         manual_group = QActionGroup(self)
         manual_group.setExclusive(True)
 
         states = [
-            (BugState.IDLE, "☕ IDLE (Пьёт чай)"),
+            (BugState.IDLE, "☕ IDLE (Пьёт чай / Sipping tea)"),
             (BugState.THINKING, "🧠 THINKING (Думает Argon)"),
+            (BugState.SEARCHING, "🔍 SEARCHING (Читает код / Docs)"),
             (BugState.WORKING, "⚡ WORKING (Flash пилит код)"),
             (BugState.TESTING, "🧪 TESTING (Запуск и тесты)"),
+            (BugState.ASKING, "❓ ASKING (Ждёт ответа / Question)"),
+            (BugState.SUCCESS, "🎉 SUCCESS (Миссия выполнена)"),
+            (BugState.ERROR, "💧 ERROR (Конфуз / Ошибка)"),
             (BugState.LIMIT, "💤 LIMIT (Жук лимитает)"),
         ]
 
@@ -158,12 +194,19 @@ class ArgonBugWidget(QWidget):
 
         menu.addSeparator()
 
-        # 4. Quit
-        quit_action = QAction("❌ Скрыть / Закрыть Аргончика", self)
+        # 5. Quit
+        quit_label = "❌ Скрыть / Закрыть Аргончика" if is_ru else "❌ Hide / Close Mascot"
+        quit_action = QAction(quit_label, self)
         quit_action.triggered.connect(self.close)
         menu.addAction(quit_action)
 
         return menu
+
+    def _set_language(self, lang: str):
+        self.renderer.set_language(lang)
+        save_language_preference(lang)
+        self.tray_icon.setContextMenu(self._create_context_menu())
+        self.update()
 
     def _toggle_auto_mode(self, checked: bool):
         self.auto_mode = checked
@@ -195,16 +238,17 @@ class ArgonBugWidget(QWidget):
         self.renderer.update_animation()
         self.update()
 
-    # Painting
     def paintEvent(self, event: QPaintEvent):
         painter = QPainter(self)
         self.renderer.render(painter, self.width(), self.height())
         painter.end()
 
-    # Drag & Drop handling
+    # Drag & Drop vs Petting / Click
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
             self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self.press_pos = event.globalPosition().toPoint()
+            self.press_time = time.time()
             self.is_dragging = True
             event.accept()
 
@@ -216,6 +260,11 @@ class ArgonBugWidget(QWidget):
     def mouseReleaseEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
             self.is_dragging = False
+            duration = time.time() - self.press_time
+            displacement = (event.globalPosition().toPoint() - self.press_pos).manhattanLength()
+            if duration < 0.35 and displacement < 6:
+                self.renderer.trigger_petting()
+                self.update()
             event.accept()
 
     def contextMenuEvent(self, event: QContextMenuEvent):

@@ -31,6 +31,7 @@ logs/
 
 # Temporary reports
 REPORT.md
+NIGHT_REPORT.md
 TEST_RESULTS.md
 *.report.md
 RELEASE_REVIEW.md
